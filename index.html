@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>动漫资源索引库</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; background: #f4f4f9; margin: 0; padding: 0; }
+        .container { max-width: 800px; margin: 0 auto; background: #fff; min-height: 100vh; box-shadow: 0 0 10px rgba(0,0,0,0.05); }
+        .header { padding: 20px; border-bottom: 1px solid #eee; position: sticky; top: 0; background: #fff; z-index: 100; }
+        h1 { margin: 0 0 10px 0; font-size: 1.5rem; text-align: center; }
+        .status-bar { font-size: 12px; color: #888; text-align: center; margin-bottom: 10px; }
+        
+        /* 搜索框样式 */
+        .search-box { position: relative; }
+        input { width: 100%; padding: 12px 15px; font-size: 16px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; outline: none; background: #f9f9f9; transition: all 0.2s; }
+        input:focus { border-color: #0088cc; background: #fff; box-shadow: 0 0 0 3px rgba(0,136,204,0.1); }
+
+        /* 列表样式 */
+        #list { padding: 0 20px; }
+        .item { padding: 15px 0; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
+        .info { overflow: hidden; margin-right: 15px; }
+        .name { font-weight: 500; color: #333; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+        .meta { font-size: 12px; color: #999; }
+        .btn { text-decoration: none; background: #0088cc; color: white; padding: 6px 14px; border-radius: 20px; font-size: 13px; white-space: nowrap; font-weight: 500; }
+        .btn:active { transform: scale(0.95); }
+
+        /* Loading 遮罩 */
+        #loading { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.9); display: flex; justify-content: center; align-items: center; flex-direction: column; z-index: 1000; }
+        .spinner { width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #0088cc; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 10px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <div id="loading">
+        <div class="spinner"></div>
+        <div id="loading-text">正在下载索引数据...</div>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1>📺 动漫索引</h1>
+            <div class="status-bar" id="status">连接数据库中...</div>
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="搜索动漫 (例如: 进击 1080p)...">
+            </div>
+        </div>
+        <div id="list"></div>
+    </div>
+
+    <script>
+        let allVideos = [];
+        const listEl = document.getElementById('list');
+        const statusEl = document.getElementById('status');
+        const loadingEl = document.getElementById('loading');
+        const loadingText = document.getElementById('loading-text');
+
+        // 核心：异步获取 JSON
+        async function loadData() {
+            try {
+                // 加个时间戳防止缓存太死，但GitHub Pages本身有缓存策略
+                const response = await fetch('data.json?v=' + new Date().getTime());
+                
+                if (!response.ok) throw new Error("网络错误");
+
+                // 获取文件大小用于显示进度（如果服务器支持 Content-Length）
+                const contentLength = response.headers.get('content-length');
+                const total = parseInt(contentLength, 10);
+                let loaded = 0;
+
+                const reader = response.body.getReader();
+                const chunks = [];
+                
+                while(true) {
+                    const {done, value} = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    loaded += value.length;
+                    if(total) {
+                        loadingText.innerText = `下载中: ${Math.round(loaded / 1024 / 1024 * 10) / 10} MB`;
+                    }
+                }
+
+                // 组装 Blob 并解析 JSON
+                const blob = new Blob(chunks);
+                const text = await blob.text();
+                const json = JSON.parse(text);
+
+                allVideos = json.videos;
+                
+                statusEl.innerText = `最后更新: ${json.updated_at} | 总收录: ${json.total} 条`;
+                loadingEl.style.display = 'none'; // 隐藏 loading
+                
+                // 初始渲染前 50 条
+                renderList(allVideos.slice(0, 50));
+
+            } catch (error) {
+                loadingText.innerText = "数据加载失败，请刷新页面重试。";
+                console.error(error);
+            }
+        }
+
+        // 渲染列表 (只接受要显示的数据数组)
+        function renderList(videos) {
+            let html = '';
+            videos.forEach(v => {
+                html += `
+                    <div class="item">
+                        <div class="info">
+                            <div class="name" title="${v.name}">${v.name}</div>
+                            <div class="meta">${v.date} · ${v.size} MB</div>
+                        </div>
+                        <a href="${v.link}" target="_blank" class="btn">View</a>
+                    </div>
+                `;
+            });
+            listEl.innerHTML = html;
+        }
+
+        // 搜索去抖动 (防卡顿)
+        let timeout = null;
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => {
+                const keyword = e.target.value.toLowerCase().trim();
+                
+                if (!keyword) {
+                    renderList(allVideos.slice(0, 50));
+                    return;
+                }
+
+                // 多关键词支持 (例如输入 "巨人 1080")
+                const terms = keyword.split(' ');
+                
+                // 筛选逻辑
+                const filtered = allVideos.filter(v => {
+                    const name = v.name.toLowerCase();
+                    return terms.every(term => name.includes(term));
+                });
+
+                // 永远只渲染前 100 条结果，防止 DOM 爆炸
+                // 如果结果太多，就在底部提示
+                renderList(filtered.slice(0, 100));
+                
+                if (filtered.length === 0) {
+                    listEl.innerHTML = '<div style="text-align:center; padding:20px; color:#999">未找到相关资源</div>';
+                }
+            }, 300); // 300ms 延迟
+        });
+
+        // 启动
+        loadData();
+    </script>
+</body>
+</html>
