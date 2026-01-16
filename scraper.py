@@ -27,9 +27,35 @@ async def main():
     print(f"当前已有视频数: {len(data)}，从 ID {min_id} 开始增量抓取...")
 
     # 2. 抓取新数据
-    async with TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH) as client:
-        entity = await client.get_entity(CHANNEL_USERNAME)
+    print("正在初始化 Telegram Client...")
+    
+    # 显式禁用 IPv6，通常能解决 GitHub Actions 卡住的问题
+    client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH, system_version="4.16.30-vxCUSTOM")
+    
+    # 手动控制连接，增加调试信息
+    try:
+        await client.connect()
+    except OSError:
+        print("连接失败，尝试重新连接...")
+        await client.connect()
+        
+    if not await client.is_user_authorized():
+        print("❌ 错误：Session String 已失效或未授权。脚本将挂起等待输入，正在终止...")
+        return
+
+    print("✅ 连接成功！开始获取频道实体...")
+
+    async with client:
+        # 注意：get_entity 有时也会卡，加个 try
+        try:
+            entity = await client.get_entity(CHANNEL_USERNAME)
+            print(f"已找到频道: {entity.title} (ID: {entity.id})")
+        except ValueError:
+            print(f"❌ 找不到频道: {CHANNEL_USERNAME}，请检查用户名是否正确或频道是否被封禁。")
+            return
+
         new_videos = []
+        print(f"开始遍历消息 (从 ID {min_id} 开始)...")
         
         async for message in client.iter_messages(entity, min_id=min_id, limit=None):
             if message.file:
