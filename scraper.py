@@ -59,7 +59,7 @@ async def main():
         
         count = 0 # 用于打印进度的计数器
 
-        async for message in client.iter_messages(entity, min_id=min_id, limit=3000):
+        async for message in client.iter_messages(entity, min_id=min_id, limit=None):
             # 打印心跳日志，防止 GitHub Actions 以为程序死掉
             count += 1
             if count % 1000 == 0:
