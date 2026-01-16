@@ -29,7 +29,7 @@ jobs:
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
-        run: python scraper.py
+        run: python -u scraper.py
 
       - name: Commit and Push changes
         run: |
