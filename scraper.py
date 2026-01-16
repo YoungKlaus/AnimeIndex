@@ -57,15 +57,34 @@ async def main():
         new_videos = []
         print(f"开始遍历消息 (从 ID {min_id} 开始)...")
         
-        async for message in client.iter_messages(entity, min_id=min_id, limit=None):
-            if message.file:
+        count = 0 # 用于打印进度的计数器
+
+        async for message in client.iter_messages(entity, min_id=min_id, limit=3000):
+            # 打印心跳日志，防止 GitHub Actions 以为程序死掉
+            count += 1
+            if count % 1000 == 0:
+                print(f"已扫描 {count} 条消息...", flush=True)
+
+            # === 修改核心判断逻辑 ===
+            # 只有当消息包含 document（泛指所有非图片的附件，如视频、文件）时才处理
+            # 这样就自动排除了纯文本消息和纯图片消息
+            if message.document: 
                 file_name = None
                 is_video = False
-                for attr in message.document.attributes:
+                
+                # 安全地获取 attributes
+                # 有些 document 可能没有 attributes 属性，虽然少见，但加个 getattr 更稳妥
+                attributes = getattr(message.document, 'attributes', []) or []
+
+                for attr in attributes:
                     if isinstance(attr, DocumentAttributeFilename):
                         file_name = attr.file_name
                 
-                if message.file.mime_type.startswith('video/') or (file_name and file_name.endswith(('.mkv', '.mp4'))):
+                # 检查 MIME 类型
+                # message.file.mime_type 是安全的，因为 message.document 存在则 message.file 一定存在
+                mime_type = getattr(message.file, 'mime_type', '') or ''
+                
+                if mime_type.startswith('video/') or (file_name and file_name.endswith(('.mkv', '.mp4', '.avi', '.mov'))):
                     is_video = True
 
                 if is_video and file_name:
